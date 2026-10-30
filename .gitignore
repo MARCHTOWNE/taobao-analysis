@@ -5,6 +5,7 @@ data/
 *.parquet
 *.csv
 !sample/*.csv
+!models/*.csv
 
 # Python
 __pycache__/
