@@ -1,0 +1,26 @@
+# 原始/大体积数据不进仓库（GitHub 单文件上限 100MB）
+UserBehavior.csv
+UserBehavior.csv.zip
+data/
+*.parquet
+*.csv
+!sample/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Spark / 临时文件
+spark-warehouse/
+metastore_db/
+derby.log
+*.log
+
+# 系统/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
