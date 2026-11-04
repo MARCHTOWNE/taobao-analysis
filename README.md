@@ -1,147 +1,151 @@
-# 淘宝用户行为分析：MySQL + PySpark + scikit-learn
+**English** | [简体中文](README.zh-CN.md)
 
-基于阿里天池公开的淘宝用户行为数据（约 1 亿条记录，9 天），完成一套从数据清洗、SQL 业务分析、全量特征工程到购买预测与用户分群的流程。重点不是追求模型分数，而是把每一步的口径、对照和局限讲清楚。
+# Taobao User Behavior Analysis: MySQL + PySpark + scikit-learn
 
-## 项目内容
+An end-to-end analysis of the public Taobao user-behavior dataset from Alibaba Tianchi (about 100 million records over 9 days): data cleaning, SQL business analysis, full-scale feature engineering, purchase prediction and user segmentation. The goal is not a high model score, but to be explicit about definitions, baselines and limitations at every step.
 
-- 用 MySQL 完成清洗、导入和 6 组业务分析（指标、时间趋势、转化漏斗、类目、加购流失、复购）。
-- 用 PySpark 在全量 1 亿行上构建用户级特征，并按时间切分生成训练/测试快照。
-- 用 scikit-learn 做购买预测（含规则基线对照）和 K-Means 用户分群。
-- 所有 SQL 分别在 MySQL 和 DuckDB（5% 样本）上执行，结果逐项一致；Spark 特征在 5% 样本上与 DuckDB 独立重算的结果逐用户一致。
+## What this project does
 
-## 数据
+- Cleans and loads the data in MySQL and answers 6 groups of business questions (overview metrics, time trends, conversion funnel, categories, cart abandonment, repeat purchase).
+- Builds user-level features with PySpark on the full 100M rows, using time-forward train/test snapshots.
+- Predicts purchase with scikit-learn (including a rule-based baseline) and segments users with K-Means.
+- Every SQL query was run on both MySQL and DuckDB (5% sample) with matching results; Spark features were checked against an independent DuckDB recomputation on the 5% sample, with no per-user mismatches.
 
-- 来源：阿里天池 *User Behavior Data from Taobao for Recommendation*。
-- 规模：100,150,807 行；字段为用户 ID、商品 ID、类目 ID、行为类型、时间戳；行为类型为 pv（浏览）、fav（收藏）、cart（加购）、buy（购买）。
-- 时间：2017-11-25 至 2017-12-03，共 9 天（按北京时间）。其中约 5.6 万行（约 0.06%）时间戳落在该范围之外，清洗时剔除。
-- 没有价格、用户画像和商品属性，因此分析只能围绕行为本身展开。
-- 数据说明为随机抽取的用户，但观察窗内有购买行为的用户占比约 48–49%，明显偏高，结论能否外推到整个平台需要谨慎。
+## Data
 
-## 技术路线
+- Source: Alibaba Tianchi, *User Behavior Data from Taobao for Recommendation*. This repository **does not contain the raw data**; download it from Tianchi (mind its terms of use).
+- Size: 100,150,807 rows; fields are user ID, item ID, category ID, behavior type and timestamp. Behavior types: pv (page view), fav (favorite), cart (add to cart), buy (purchase).
+- Time range: 2017-11-25 to 2017-12-03, 9 days (Beijing time). About 56K rows (~0.06%) fall outside this range and are dropped during cleaning.
+- There is no price, user profile or item attribute, so the analysis is limited to behavior.
+- The data is described as a random user sample, but about 48-49% of users made a purchase in the window, which is high. Be careful when generalizing to the whole platform.
 
-| 步骤 | 工具 | 说明 |
+## Pipeline
+
+| Step | Tool | Notes |
 |---|---|---|
-| 抽样 | awk / Python | 按用户抽取 5%（每 20 个用户取 1 个），保证每个用户的行为轨迹完整 |
-| 导入、清洗、业务分析 | MySQL 9.7 | `sql/00`–`09`，编号顺序执行 |
-| 对照验证 | DuckDB | 同一批 SQL 在 DuckDB 上重算，结果一致 |
-| 特征工程 | PySpark 4.2 | 全量数据，输出约 195 万行用户级特征 |
-| 建模与分群 | scikit-learn | 逻辑回归、梯度提升树、K-Means |
-| 可视化 | pandas / matplotlib | 图直接由 SQL 结果生成 |
+| Sampling | awk / Python | 5% of users (1 in 20), keeping each user's trajectory complete |
+| Load, clean, business analysis | MySQL 9.7 | `sql/00`-`09`, run in numeric order |
+| Cross-check | DuckDB | Same SQL re-run on DuckDB; results match |
+| Feature engineering | PySpark 4.2 | Full data, ~1.96M user-level rows |
+| Modeling and segmentation | scikit-learn | Logistic regression, gradient boosting, K-Means |
+| Visualization | pandas / matplotlib | Charts are generated directly from SQL results |
 
-## 一、业务分析（5% 用户样本：49,396 名用户，约 497 万条记录）
+## 1. Business analysis (5% user sample: 49,396 users, ~4.97M records)
 
-> 样本中 68% 的用户在 9 天内有购买，高于一般电商水平，以下比例只描述这份数据，不代表平台整体。
+> 68% of users in the sample bought within the 9 days, higher than typical e-commerce. All ratios below describe this dataset only, not the platform as a whole.
 
-人均浏览 90 次，购买次数 / 浏览次数为 2.24%。
+On average a user has 90 page views; purchases per page view is 2.24%.
 
-![每日趋势](figures/01_daily_trend.png)
+![Daily trend](figures/en/01_daily_trend.png)
 
-12 月 2–3 日的访问用户数比此前日均高约 35%，浏览量和购买次数同步上升。是否由促销预热引起，数据里没有直接证据，本文不下结论。
+On Dec 2-3 the number of active users is about 35% above the earlier daily average, with page views and purchases rising together. The data gives no direct evidence on whether promotions caused this, so no conclusion is drawn.
 
-![分时段](figures/02_hourly.png)
+![Hourly pattern](figures/en/02_hourly.png)
 
-浏览量在晚上 9 点左右最高，而购买次数 / 浏览次数在上午 10 点最高（2.92%），凌晨 1–6 点约 1.5%。
+Page views peak around 9 pm, while purchases per page view peak at 10 am (2.92%) and sit near 1.5% between 1 and 6 am.
 
-![漏斗](figures/03_funnel_pairs.png)
+![Funnel](figures/en/03_funnel_pairs.png)
 
-按“用户-商品对”统计：浏览过的有 3,528,090 对，其中收藏或加购过的 186,238 对（5.3%），收藏/加购后购买的 17,599 对（占收藏/加购 9.4%）；没有收藏/加购就直接购买的有 47,072 对（占浏览 1.3%）。漏斗按“是否发生过该行为”定义，不要求先后顺序。
+By user-item pair: 3,528,090 pairs were viewed; 186,238 (5.3%) were also favorited or carted; 17,599 of those were bought (9.4% of favorited/carted pairs). 47,072 pairs were bought without any favorite/cart (1.3% of viewed pairs). The funnel records whether a behavior occurred, not its order.
 
-![类目转化率](figures/04_category_conversion.png)
+![Category conversion](figures/en/04_category_conversion.png)
 
-共 7,498 个类目，购买最多的前 10 个类目占全部购买的 13.2%，前 100 个占 44.3%。浏览量前 20 的类目里，购买次数 / 浏览次数从 0.31% 到 3.36% 不等。
+There are 7,498 categories; the top 10 account for 13.2% of purchases and the top 100 for 44.3%. Among the 20 most-viewed categories, purchases per page view range from 0.31% to 3.36%.
 
-![复购](figures/05_repurchase.png)
+![Repeat purchase](figures/en/05_repurchase.png)
 
-在有购买的用户中，66.2% 在 9 天内购买了不止一次。另外，加购过的商品里有 93.6% 在窗口内没有被购买；9 天的窗口较短，之后才购买的看不到，所以这个比例偏高。
+Among buyers, 66.2% bought more than once in 9 days. 93.6% of carted items were not bought within the window; the window is short and later purchases are not visible, so this figure is inflated.
 
-## 二、购买预测（全量数据）
+## 2. Purchase prediction (full data)
 
-**任务**：根据用户 5 天内的行为，预测其随后 2 天内是否至少购买一次。
+**Task**: given a user's behavior over 5 days, predict whether they buy at least once in the following 2 days.
 
-**评估设计**
+**Evaluation design**
 
-- 时间向前：训练用 11/25–11/29 的行为预测 11/30–12/01；测试用 11/27–12/01 的行为预测 12/02–12/03。两个快照窗口长度相同，测试标签都在训练标签之后。
-- 用户不重叠：按用户 ID 哈希分组，约 70% 用户用于训练，10% 用于选阈值，20% 只用于测试。
-- 特征共 17 个：各行为次数、活跃天数、浏览的商品/类目数、最后一天的行为、距上次活跃/购买的天数、加购或收藏后未购买的商品数、行为占比。
-- 对照：规则基线（观察窗内买过就预测会再买）、逻辑回归、梯度提升树（sklearn 的 HistGradientBoosting，使用早停，未做超参搜索）。
+- Time-forward: train on behavior 11/25-11/29 predicting 11/30-12/01; test on behavior 11/27-12/01 predicting 12/02-12/03. Both snapshots use the same window lengths, and test labels come after train labels.
+- User-disjoint: users are hashed by ID; ~70% train, 10% for threshold selection, 20% used only for testing.
+- 17 features: counts per behavior, active days, distinct items/categories, last-day behavior, days since last activity/purchase, items carted or favorited but not bought, behavior ratios.
+- Comparisons: rule baseline (bought during the observation window -> predict they buy again), logistic regression, gradient boosting (sklearn HistGradientBoosting with early stopping, no hyperparameter search).
 
-**结果**（测试集 195,623 名用户，购买率 30.9%，随机猜测的 PR-AUC 约为 0.309）
+**Results** (test set: 195,623 users, purchase rate 30.9%; PR-AUC of random guessing is about 0.309)
 
-| 模型 | ROC-AUC | PR-AUC | 精确率 | 召回率 | F1 |
+| Model | ROC-AUC | PR-AUC | Precision | Recall | F1 |
 |---|---|---|---|---|---|
-| 规则基线 | 0.584 | 0.375 | 0.367 | 0.586 | 0.451 |
-| 逻辑回归 | 0.594 | 0.399 | 0.352 | 0.694 | 0.467 |
-| 梯度提升树 | 0.595 | 0.404 | 0.346 | 0.737 | 0.471 |
+| Rule baseline | 0.584 | 0.375 | 0.367 | 0.586 | 0.451 |
+| Logistic regression | 0.594 | 0.399 | 0.352 | 0.694 | 0.467 |
+| Gradient boosting | 0.595 | 0.404 | 0.346 | 0.737 | 0.471 |
 
-精确率、召回率、F1 使用在验证集上使 F1 最大的阈值（规则基线为“观察窗内买过”）。
+Precision, recall and F1 use the threshold that maximizes F1 on the validation set (the rule baseline uses "bought in the observation window").
 
-![模型曲线](figures/06_model_curves.png)
+![Model curves](figures/en/06_model_curves.png)
 
-![特征重要性](figures/07_feature_importance.png)
+![Feature importance](figures/en/07_feature_importance.png)
 
-排列重要性最高的是购买次数，其次是浏览商品数、浏览次数、购买/浏览比和距上次购买天数。它反映模型对特征的依赖程度，不代表因果关系。
+Purchases count ranks highest by permutation importance, followed by distinct items viewed, page views, purchase/view ratio and days since last purchase. Importance reflects how much the model relies on a feature, not causality.
 
-**如何解读：模型有提升，但很小**
+**How to read it: the models help, but only slightly**
 
-两个学习模型相对规则基线的提升有限（PR-AUC 约 +0.03，F1 约 +0.02）。为弄清原因，用一个较小的梯度提升模型（25 万训练样本、100 轮）做了诊断：
+Both learned models improve only modestly over the rule baseline (PR-AUC about +0.03, F1 about +0.02). To understand why, I ran a diagnosis with a smaller gradient boosting model (250K training samples, 100 iterations):
 
-| 评估对象 | 购买率 | ROC-AUC | PR-AUC |
+| Evaluated on | Purchase rate | ROC-AUC | PR-AUC |
 |---|---|---|---|
-| 训练集自身 | 25.4% | 0.641 | 0.398 |
-| 同一时期的新用户（验证） | 25.8% | 0.631 | 0.379 |
-| 后一时期的新用户（测试） | 30.9% | 0.593 | 0.402 |
-| 后一时期的同批用户 | 30.8% | 0.591 | 0.400 |
+| Training set itself | 25.4% | 0.641 | 0.398 |
+| New users, same period (validation) | 25.8% | 0.631 | 0.379 |
+| New users, later period (test) | 30.9% | 0.593 | 0.402 |
+| Same users, later period | 30.8% | 0.591 | 0.400 |
 
-- 训练集与同期新用户的 AUC 接近（0.641 对 0.631），不存在明显过拟合；测试时新用户与同批用户结果几乎相同（0.593 对 0.591），说明用户划分没有造成泄露。
-- 即使在同一时期的新用户上，AUC 也只有约 0.63，说明这 17 个行为汇总特征能提供的信息本身有限。
-- 测试窗口里，观察窗内没买过的用户随后购买率从 19.7% 升到 25.3%，整体水平抬高，模型区分用户的能力下降约 0.04 AUC。这是对数据现象的推断，没有用对照实验验证。
+- Training and same-period new-user AUC are close (0.641 vs 0.631), so there is no clear overfitting; new users and same users give almost identical results on the test period (0.593 vs 0.591), so the user split does not leak.
+- Even on same-period new users AUC is only about 0.63, meaning these 17 aggregated behavior features carry limited information.
+- In the test window, the purchase rate of users who had not bought in the observation window rises from 19.7% to 25.3%. The overall level shifts up and discrimination drops by about 0.04 AUC. This is an inference from the data and was not tested with a controlled experiment.
 
-## 三、用户分群
+## 3. User segmentation
 
-对测试快照的观察窗（11/27–12/01，约 98 万用户）用 K-Means 分为 4 群。轮廓系数约 0.24，说明用户行为是连续分布的，没有天然分开的簇，分群在这里是描述工具，K=4 是为了便于解读。
+K-Means (K=4) on the observation window of the test snapshot (11/27-12/01, ~980K users). The silhouette score is about 0.24: user behavior is a continuum without natural clusters, so segmentation is used as a descriptive tool and K=4 was chosen for interpretability.
 
-![用户分群](figures/08_user_segments.png)
+![User segments](figures/en/08_user_segments.png)
 
-| 分群 | 占比 | 浏览中位数 | 加购中位数 | 收藏中位数 | 购买中位数 | 观察窗内购买过 | 之后 2 天购买率 |
+| Segment | Share | Median views | Median carts | Median favorites | Median purchases | Bought in window | Bought in next 2 days |
 |---|---|---|---|---|---|---|---|
-| 低活跃型 | 21.5% | 6 | 0 | 0 | 0 | 23.4% | 29.8% |
-| 中等活跃·浏览型 | 37.8% | 25 | 1 | 0 | 0 | 38.2% | 28.0% |
-| 高活跃·收藏型 | 14.8% | 68 | 1 | 6 | 1 | 61.5% | 31.1% |
-| 高活跃·加购购买型 | 26.0% | 70 | 6 | 0 | 2 | 79.2% | 35.5% |
+| Low activity | 21.5% | 6 | 0 | 0 | 0 | 23.4% | 29.8% |
+| Medium activity, browsers | 37.8% | 25 | 1 | 0 | 0 | 38.2% | 28.0% |
+| High activity, favoriters | 14.8% | 68 | 1 | 6 | 1 | 61.5% | 31.1% |
+| High activity, cart & buy | 26.0% | 70 | 6 | 0 | 2 | 79.2% | 35.5% |
 
-各群之后的购买率相差约 7 个百分点，和预测部分“信号有限”的结论一致。完整画像见 `models/segment_profile.csv`。
+Next-2-day purchase rates differ by only about 7 percentage points across segments, consistent with the limited signal found in the prediction section. Full profile: `models/segment_profile.en.csv`. Numbers come from a single K-Means run and may shift slightly with a different sklearn version.
 
-## 四、工程笔记
+## 4. Engineering notes
 
-- MySQL 默认 InnoDB 缓冲池只有 128MB，在 500 万行的表上单条聚合查询耗时 4–28 分钟；调到 8GB 后同类查询降到几秒。
-- 全量 1 亿行不适合直接放进 MySQL 分析，所以 MySQL 处理 5% 样本，全量特征工程交给 PySpark。
-- Spark 在 Windows 上写文件需要额外的 Hadoop 组件，因此 Spark 只做聚合，结果用 pandas 保存。
-- 验证：SQL 结果在 MySQL 与 DuckDB 上一致；在 5% 样本上，Spark 输出的 11 个特征及标签与 DuckDB 独立重算的结果逐用户一致（全量结果未做逐用户对照）。
+- MySQL's default InnoDB buffer pool is only 128 MB; single aggregate queries on a 5M-row table took 4-28 minutes. After raising it to 8 GB, similar queries ran in seconds.
+- The full 100M rows are not practical to analyze in MySQL, so MySQL handles the 5% sample and PySpark handles full-scale feature engineering.
+- Writing files from Spark on Windows needs extra Hadoop components, so Spark only aggregates and results are saved with pandas.
+- Validation: SQL results match between MySQL and DuckDB; on the 5% sample, 11 Spark features plus the label match an independent DuckDB recomputation per user (no per-user check on the full data).
 
-## 五、局限与后续
+## 5. Limitations and next steps
 
-- 没有价格、用户属性、商品属性，只能用行为特征；预测窗口仅 2 天，数据总长仅 9 天。
-- 测试窗口恰好是流量上升的 12/02–12/03，存在分布偏移，结果不能直接代表常态时期。
-- 预测的是“用户级是否购买”，没有做“用户-商品对”级别的预测，后者更接近加购召回等业务场景。
-- 模型没有做超参搜索，也没有尝试更丰富的时间序列特征（每日序列、最近几小时行为、类目偏好等）。
-- 数据偏向活跃/购买用户，结论不宜外推到平台整体。
+- No price, user or item attributes: only behavioral features; the prediction window is 2 days and the data spans only 9 days.
+- The test window (12/02-12/03) happens to be a traffic surge, so there is distribution shift and results do not represent normal periods.
+- Prediction is user-level ("will the user buy"), not user-item level, which would be closer to cart-recall use cases.
+- No hyperparameter search and no richer time-series features (daily sequences, last-hours behavior, category preference).
+- The data is biased toward active/buying users; do not extrapolate to the whole platform.
 
-## 复现
+## Reproduce
 
-1. 从天池下载 `UserBehavior.csv` 放到项目根目录（不入库）。
-2. 抽样：`python scripts/make_sample.py UserBehavior.csv data/sample_5pct.csv 20`
-3. 在 MySQL 中依次执行 `sql/00`–`03`（建表、导入、清洗、索引），再执行 `sql/04`–`09`（需要 `local_infile`，建议调大 `innodb_buffer_pool_size`）。
-4. `pip install -r requirements.txt`，运行 `python scripts/make_figures.py` 生成业务分析图（读取 MySQL）。
-5. 特征工程（需要 JDK 17/21）：`python spark/01_build_features.py`
-6. 建模与分群：`python scripts/train_models.py`、`python scripts/cluster_users.py`
+1. Download `UserBehavior.csv` from Tianchi and place it in the project root (not committed).
+2. Sample: `python scripts/make_sample.py UserBehavior.csv data/sample_5pct.csv 20`
+3. In MySQL run `sql/00`-`03` (schema, load, clean, indexes), then `sql/04`-`09` (needs `local_infile`; raise `innodb_buffer_pool_size`).
+4. `pip install -r requirements.txt`, then `python scripts/make_figures.py --lang en` for business charts (reads MySQL; drop `--lang en` for Chinese).
+5. Feature engineering (JDK 17/21 required): `python spark/01_build_features.py`
+6. Modeling and segmentation: `python scripts/train_models.py --lang en` and `python scripts/cluster_users.py --lang en`
 
-## 目录
+## Layout
 
 ```
-sql/         MySQL 建表、导入、清洗、分析脚本
-spark/       PySpark 特征工程
-scripts/     抽样、画图、建模、分群
-figures/     输出图表
-models/      评估指标与分群画像
-docs/        展示讲解要点
+sql/         MySQL schema, load, clean and analysis scripts
+spark/       PySpark feature engineering
+scripts/     sampling, plotting, modeling, segmentation (--lang zh|en)
+figures/     Chinese charts (figures/en/ holds the English ones)
+models/      metrics and segment profiles
+docs/        presentation notes (English and Chinese)
 ```
+
+Code comments are mostly in Chinese; SQL and main script headers carry an English line.

@@ -1,3 +1,4 @@
+-- [EN] Taobao user-behavior analysis: create database and tables.
 -- 淘宝用户行为分析：建库建表
 -- 运行方式：mysql -u root -p < sql/00_schema.sql
 CREATE DATABASE IF NOT EXISTS taobao DEFAULT CHARACTER SET utf8mb4;

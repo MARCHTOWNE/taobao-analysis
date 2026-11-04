@@ -1,4 +1,7 @@
-"""按用户抽样：保留 user_id % MOD == 0 的全部行为，保证每个用户轨迹完整。
+"""[EN] User-level sampling: keep all rows of users with user_id % MOD == 0 so trajectories stay complete.
+Usage: python scripts/make_sample.py data/UserBehavior.csv data/sample_5pct.csv 20
+
+按用户抽样：保留 user_id % MOD == 0 的全部行为，保证每个用户轨迹完整。
 用法：python scripts/make_sample.py data/UserBehavior.csv data/sample_5pct.csv 20
 """
 import sys

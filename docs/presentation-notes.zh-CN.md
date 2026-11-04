@@ -1,3 +1,5 @@
+[English](presentation-notes.md) | **简体中文**
+
 # 展示讲解要点（约 3 分钟）
 
 ## 一句话版本

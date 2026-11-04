@@ -1,3 +1,4 @@
+-- [EN] Purchase-count distribution, repeat rate, distribution of last purchase date (recency).
 -- 购买次数分布、复购率、最后一次购买日期分布（反映用户近期活跃度 R）
 USE taobao;
 

@@ -1,19 +1,23 @@
-"""sklearn 购买预测：用观察窗内的行为特征，预测用户在随后 2 天内是否购买。
+"""Purchase prediction with scikit-learn: from 5 days of behavior features, predict whether a user buys in the next 2 days.
+sklearn 购买预测：用观察窗内的行为特征，预测用户在随后 2 天内是否购买。
 
-评估设计（避免两类泄露）：
-  1) 时间向前：训练用 train 快照（预测窗 11/30-12/01），测试用 test 快照（预测窗 12/02-12/03）
-  2) 用户互不重叠：按 user_id 的哈希值 % 10 把用户分开 —— 0、1（约 20%）只用于测试，2（约 10%）用于选阈值，其余用于训练
-模型：规则基线（观察窗内买过 = 会再买）、逻辑回归、HistGradientBoosting（sklearn 自带的梯度提升树）
-指标：ROC-AUC、PR-AUC（average precision，更适合类别不均衡）、阈值下的精确率/召回率/F1
+Evaluation design (avoids two kinds of leakage) / 评估设计（避免两类泄露）:
+  1) Time-forward / 时间向前：训练用 train 快照（预测窗 11/30-12/01），测试用 test 快照（预测窗 12/02-12/03）
+  2) User-disjoint / 用户互不重叠：按 user_id 的哈希值 % 10 分组 —— 0、1（约 20%）只用于测试，
+     2（约 10%）用于选阈值，其余用于训练
+Models / 模型：rule baseline (bought in window), logistic regression, HistGradientBoosting
+Metrics / 指标：ROC-AUC, PR-AUC (average precision), precision / recall / F1 at a threshold
 
-用法：
+Usage / 用法:
     pip install pandas matplotlib scikit-learn
-    python scripts/train_models.py
-输出：figures/06_model_curves.png、figures/07_feature_importance.png、models/metrics.json
+    python scripts/train_models.py              # Chinese charts -> figures/
+    python scripts/train_models.py --lang en    # English charts -> figures/en/
+Output / 输出：figures/06_model_curves.png, figures/07_feature_importance.png, models/metrics.json
 """
 import argparse
 import json
 import sys
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -31,6 +35,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import labels  # noqa: E402
 from make_figures import BLUE, GRID, INK, INK2, ORANGE, SURFACE, setup_style, style_axes  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,16 +46,10 @@ FEATURES = [
 ]
 LOG_COLS = ["pv_cnt", "fav_cnt", "cart_cnt", "buy_cnt", "items_cnt", "cats_cnt",
             "pv_last_day", "cart_last_day", "buy_last_day", "cart_pending", "fav_pending"]
-CN = {
-    "pv_cnt": "浏览次数", "fav_cnt": "收藏次数", "cart_cnt": "加购次数", "buy_cnt": "购买次数",
-    "active_days": "活跃天数", "items_cnt": "浏览商品数", "cats_cnt": "浏览类目数",
-    "pv_last_day": "最后一天浏览", "cart_last_day": "最后一天加购", "buy_last_day": "最后一天购买",
-    "days_since_active": "距上次活跃天数", "days_since_buy": "距上次购买天数",
-    "cart_pending": "加购未买商品数", "fav_pending": "收藏未买商品数",
-    "buy_pv_ratio": "购买/浏览", "cart_pv_ratio": "加购/浏览", "fav_pv_ratio": "收藏/浏览",
-}
 GRAY = "#8a8984"
-NOTE = "数据：淘宝用户行为数据集全量；训练=11/25-11/29 行为预测 11/30-12/01，测试=11/27-12/01 行为预测 12/02-12/03；测试用户与训练用户互不重叠"
+MODEL_KEYS = ["rule", "lr", "gb"]  # also the display order
+MODEL_STYLE = {"rule": (GRAY, "--"), "lr": (ORANGE, "-"), "gb": (BLUE, "-")}
+JSON_KEYS = {"rule": "rule_baseline", "lr": "logistic_regression", "gb": "gradient_boosting"}
 
 
 def log_prep(X):
@@ -77,57 +76,60 @@ def best_f1_threshold(y, score):
     return float(t[int(np.argmax(f1))])
 
 
-def plot_curves(y, scores, out):
+def plot_curves(S, y, scores, out):
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 5))
-    styles = {"规则基线（观察窗内买过）": (GRAY, "--"), "逻辑回归": (ORANGE, "-"), "梯度提升树": (BLUE, "-")}
-    for name, s in scores.items():
-        color, ls = styles[name]
+    ap = {}
+    for key in MODEL_KEYS:
+        s = scores[key]
+        name = S["m_" + key]
+        color, ls = MODEL_STYLE[key]
         fpr, tpr, _ = roc_curve(y, s)
         a1.plot(fpr, tpr, color=color, linestyle=ls, linewidth=2,
-                label=f"{name}（AUC {roc_auc_score(y, s):.3f}）")
+                label=S["auc_label"].format(name=name, v=roc_auc_score(y, s)))
         p, r, _ = precision_recall_curve(y, s)
+        ap[name] = average_precision_score(y, s)
         a2.plot(r, p, color=color, linestyle=ls, linewidth=2,
-                label=f"{name}（PR-AUC {average_precision_score(y, s):.3f}）")
+                label=S["prauc_label"].format(name=name, v=ap[name]))
     a1.plot([0, 1], [0, 1], color=GRID, linewidth=1)
-    a1.set_title("ROC 曲线", loc="left", fontsize=11)
-    a1.set_xlabel("假阳性率")
-    a1.set_ylabel("真阳性率")
+    a1.set_title(S["roc_title"], loc="left", fontsize=11)
+    a1.set_xlabel(S["fpr"])
+    a1.set_ylabel(S["tpr"])
     a2.axhline(y.mean(), color=GRID, linewidth=1.5)
-    a2.text(0.5, y.mean() - 0.045, f"随机猜测 = 购买用户占比 {y.mean():.1%}", ha="center", fontsize=8.5, color=INK2)
-    a2.set_title("精确率-召回率曲线", loc="left", fontsize=11)
-    a2.set_xlabel("召回率")
-    a2.set_ylabel("精确率")
+    a2.text(0.5, y.mean() - 0.045, S["random_text"].format(r=y.mean()), ha="center", fontsize=8.5, color=INK2)
+    a2.set_title(S["pr_title"], loc="left", fontsize=11)
+    a2.set_xlabel(S["recall"])
+    a2.set_ylabel(S["precision"])
     a2.set_ylim(0, 1.02)
     for ax in (a1, a2):
         style_axes(ax)
         ax.legend(loc="lower right" if ax is a1 else "upper right", fontsize=9, frameon=False)
-    ap = {n: average_precision_score(y, s) for n, s in scores.items()}
-    fig.suptitle("购买预测模型对比（时间向前、用户不重叠的测试集）",
-                 x=0.01, ha="left", fontsize=13, fontweight="bold")
-    fig.text(0.01, 0.905, "PR-AUC：" + "，".join(f"{n.split('（')[0]} {v:.3f}" for n, v in ap.items()),
+    fig.suptitle(S["curves_title"], x=0.01, ha="left", fontsize=13, fontweight="bold")
+    fig.text(0.01, 0.905,
+             S["prauc_prefix"] + S["prauc_sep"].join(f"{n.split('（')[0].split(' (')[0]} {v:.3f}" for n, v in ap.items()),
              fontsize=10, color=INK2)
-    fig.text(0.01, 0.01, NOTE, fontsize=8, color=INK2)
+    fig.text(0.01, 0.01, S["model_note"], fontsize=8, color=INK2)
     fig.tight_layout(rect=(0, 0.04, 1, 0.90))
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
 
-def plot_importance(names, values, out):
+def plot_importance(S, names, values, out, wrap=None):
     order = np.argsort(values)[::-1][:12]
     fig, ax = plt.subplots(figsize=(9, 5.4))
     y = list(range(len(order)))
     ax.barh(y, values[order], color=BLUE, height=0.65)
     ax.set_yticks(y)
-    ax.set_yticklabels([CN[names[i]] for i in order])
+    ax.set_yticklabels([S["features"][names[i]] for i in order])
     ax.invert_yaxis()
     for yi, i in zip(y, order):
         ax.text(values[i] + values.max() * 0.01, yi, f"{values[i]:.4f}", va="center", fontsize=9, color=INK2)
     ax.set_xlim(0, values.max() * 1.15)
-    ax.set_xlabel("打乱该特征后 PR-AUC 的下降幅度（越大越重要）")
+    ax.set_xlabel(S["imp_xlabel"])
     style_axes(ax, grid="x")
-    ax.set_title("影响购买预测的主要特征（排列重要性，前 12）", loc="left", fontsize=13, fontweight="bold")
-    fig.text(0.01, 0.01, NOTE, fontsize=7.5, color=INK2)
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    ax.set_title(S["imp_title"], loc="left", fontsize=13, fontweight="bold")
+    note = textwrap.fill(S["model_note"], wrap) if wrap else S["model_note"]
+    fig.text(0.01, 0.01, note, fontsize=7.5, color=INK2)
+    fig.tight_layout(rect=(0, 0.07 if wrap else 0.04, 1, 1))
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
@@ -135,62 +137,70 @@ def plot_importance(names, values, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--features", default=str(ROOT / "data" / "user_features.csv"))
-    ap.add_argument("--fig-dir", default=str(ROOT / "figures"))
+    ap.add_argument("--lang", choices=["zh", "en"], default="zh")
+    ap.add_argument("--fig-dir", default=None)
     ap.add_argument("--model-dir", default=str(ROOT / "models"))
     args = ap.parse_args()
-    setup_style()
-    Path(args.fig_dir).mkdir(exist_ok=True)
+    S = labels.get(args.lang)
+    fig_dir = Path(args.fig_dir) if args.fig_dir else (ROOT / "figures" if args.lang == "zh" else ROOT / "figures" / "en")
+    setup_style(args.lang)
+    fig_dir.mkdir(parents=True, exist_ok=True)
     Path(args.model_dir).mkdir(exist_ok=True)
 
     df = pd.read_csv(args.features)
     # 用 user_id 的哈希值分组，避免与抽样规则（user_id % 20）等取模规则相关
+    # Group users by a hash of user_id so the split is independent of modulo-based sampling rules.
     g = pd.util.hash_array(df["user_id"].to_numpy().astype("int64")) % 10
     g = pd.Series(g, index=df.index)
     train = df[(df["snapshot"] == "train") & (g >= 3)]
     val = df[(df["snapshot"] == "train") & (g == 2)]
     test = df[(df["snapshot"] == "test") & (g <= 1)]
-    print(f"训练 {len(train):,} 行（购买占比 {train.label.mean():.1%}），验证 {len(val):,} 行，测试 {len(test):,} 行（购买占比 {test.label.mean():.1%}）")
+    print(f"train {len(train):,} rows (buyers {train.label.mean():.1%}), validation {len(val):,}, "
+          f"test {len(test):,} (buyers {test.label.mean():.1%})")
     Xtr, ytr = train[FEATURES], train["label"].values
     Xva, yva = val[FEATURES], val["label"].values
     Xte, yte = test[FEATURES], test["label"].values
 
-    scores_val, scores_te, models = {}, {}, {}
+    scores_val, scores_te = {}, {}
 
-    # 规则基线：观察窗内买过几次，就按几次排序
-    scores_val["规则基线（观察窗内买过）"] = Xva["buy_cnt"].values.astype(float)
-    scores_te["规则基线（观察窗内买过）"] = Xte["buy_cnt"].values.astype(float)
+    # 规则基线：观察窗内买过几次，就按几次排序 / rule baseline: rank users by purchases in the observation window
+    scores_val["rule"] = Xva["buy_cnt"].values.astype(float)
+    scores_te["rule"] = Xte["buy_cnt"].values.astype(float)
 
     lr = make_pipeline(StandardScaler(), LogisticRegression(max_iter=500, C=1.0))
     lr.fit(log_prep(Xtr), ytr)
-    scores_val["逻辑回归"] = lr.predict_proba(log_prep(Xva))[:, 1]
-    scores_te["逻辑回归"] = lr.predict_proba(log_prep(Xte))[:, 1]
+    scores_val["lr"] = lr.predict_proba(log_prep(Xva))[:, 1]
+    scores_te["lr"] = lr.predict_proba(log_prep(Xte))[:, 1]
 
     hgb = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.08, max_leaf_nodes=31,
                                          l2_regularization=1.0, early_stopping=True,
                                          validation_fraction=0.1, random_state=42)
     hgb.fit(Xtr, ytr)
-    scores_val["梯度提升树"] = hgb.predict_proba(Xva)[:, 1]
-    scores_te["梯度提升树"] = hgb.predict_proba(Xte)[:, 1]
-    print(f"梯度提升树实际迭代 {hgb.n_iter_} 轮")
+    scores_val["gb"] = hgb.predict_proba(Xva)[:, 1]
+    scores_te["gb"] = hgb.predict_proba(Xte)[:, 1]
+    print(f"Gradient boosting used {hgb.n_iter_} iterations")
 
+    zh, en = labels.get("zh"), labels.get("en")
     result = {}
-    for name in scores_te:
-        thr = 1.0 if name.startswith("规则") else best_f1_threshold(yva, scores_val[name])
-        result[name] = metrics(yte, scores_te[name], thr)
+    for key in MODEL_KEYS:
+        thr = 1.0 if key == "rule" else best_f1_threshold(yva, scores_val[key])
+        result[JSON_KEYS[key]] = {"name_zh": zh["m_" + key], "name_en": en["m_" + key],
+                                  **metrics(yte, scores_te[key], thr)}
     result["_meta"] = {"train_rows": int(len(train)), "val_rows": int(len(val)), "test_rows": int(len(test)),
                        "test_positive_rate": float(yte.mean())}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     (Path(args.model_dir) / "metrics.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    plot_curves(yte, scores_te, Path(args.fig_dir) / "06_model_curves.png")
+    plot_curves(S, yte, scores_te, fig_dir / "06_model_curves.png")
 
     rng = np.random.RandomState(0)
     idx = rng.choice(len(Xte), size=min(50000, len(Xte)), replace=False)
     pi = permutation_importance(hgb, Xte.iloc[idx], yte[idx], scoring="average_precision",
                                 n_repeats=3, random_state=0, n_jobs=-1)
-    plot_importance(FEATURES, pi.importances_mean, Path(args.fig_dir) / "07_feature_importance.png")
+    plot_importance(S, FEATURES, pi.importances_mean, fig_dir / "07_feature_importance.png",
+                    wrap=110 if args.lang == "en" else None)
     top = np.argsort(pi.importances_mean)[::-1][:5]
-    print("最重要的 5 个特征：", [(CN[FEATURES[i]], round(float(pi.importances_mean[i]), 4)) for i in top])
+    print("Top 5 features:", [(S["features"][FEATURES[i]], round(float(pi.importances_mean[i]), 4)) for i in top])
 
 
 if __name__ == "__main__":

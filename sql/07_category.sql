@@ -1,3 +1,4 @@
+-- [EN] Category analysis: top categories, conversion, purchase concentration.
 -- 类目分析：热门类目、转化率、购买集中度
 USE taobao;
 

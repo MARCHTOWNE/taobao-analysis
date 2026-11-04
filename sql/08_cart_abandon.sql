@@ -1,3 +1,4 @@
+-- [EN] Cart abandonment: share of carted items that were never bought.
 -- 加购流失：加购了某商品但没有购买它的比例
 USE taobao;
 

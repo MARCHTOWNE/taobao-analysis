@@ -1,4 +1,11 @@
-"""PySpark 特征工程：从行为日志生成"用户级"特征表，并给出购买标签。
+"""[EN] PySpark job: builds a user-level feature table and a purchase label from the behavior log.
+Time-forward split (day index 0 = 2017-11-25, Beijing time): train = days 0-4 -> label days 5-6;
+test = days 2-6 -> label days 7-8. Same window lengths, test labels come after train labels.
+Note: 12/02-12/03 traffic is higher, so the test set has some distribution shift.
+Usage: python spark/01_build_features.py --sample   (5% sample first; --java-home needs JDK 17/21)
+(Chinese notes below / 以下为中文说明)
+
+PySpark 特征工程：从行为日志生成"用户级"特征表，并给出购买标签。
 
 思路（按时间切分，避免数据泄露）：
   把 9 天按序号 0..8 编号（0 = 2017-11-25，8 = 2017-12-03，北京时间）。

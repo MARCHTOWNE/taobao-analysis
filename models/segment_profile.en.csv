@@ -1,0 +1,5 @@
+﻿Segment,Users,Share,Median page views,Median favorites,Median add-to-carts,Median purchases,Median active days,Median categories viewed,Bought in observation window,Bought in following 2 days
+Low activity,210468,0.2149852705038264,6.0,0.0,0.0,0.0,2.0,3.0,0.23409734496455517,0.2977412243191364
+Medium activity · browsers,369991,0.3779321094844881,25.0,0.0,1.0,0.0,4.0,10.0,0.38240119354254565,0.2796176123202997
+High activity · favoriters,144410,0.14750946896182587,68.0,6.0,1.0,1.0,5.0,21.0,0.6152274773215152,0.31141195208088085
+High activity · cart & buy,254119,0.2595731510498597,70.0,0.0,6.0,2.0,5.0,21.0,0.7918455526741408,0.3550816743336783

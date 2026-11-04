@@ -1,3 +1,4 @@
+-- [EN] Conversion funnel (defined by whether a behavior ever occurred for the user or user-item pair; order is not required).
 -- 转化漏斗（口径：看用户或"用户-商品对"是否发生过该行为，不要求时间顺序）
 USE taobao;
 

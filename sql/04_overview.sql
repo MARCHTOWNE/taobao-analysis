@@ -1,3 +1,4 @@
+-- [EN] Overview: row count, events per behavior type, number of buyers.
 -- 整体指标：规模、各行为次数、购买用户数
 USE taobao;
 

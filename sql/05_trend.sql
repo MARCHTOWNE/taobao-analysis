@@ -1,3 +1,4 @@
+-- [EN] Time trends: by day, by hour, weekday vs weekend.
 -- 时间趋势：按天、按小时、工作日 vs 周末
 USE taobao;
 

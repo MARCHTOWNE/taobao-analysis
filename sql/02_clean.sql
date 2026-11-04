@@ -1,3 +1,4 @@
+-- [EN] Clean: drop out-of-range timestamps; derive dt / hr in Beijing time (UTC+8) using second offsets, independent of server time zone.
 -- 清洗：剔除时间范围外的脏数据，并按北京时间(UTC+8)拆出 dt / hr
 -- 1511539200 = 2017-11-25 00:00:00 +08:00
 -- 1512316800 = 2017-12-04 00:00:00 +08:00（不含）

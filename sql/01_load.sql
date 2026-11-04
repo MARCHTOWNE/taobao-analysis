@@ -1,3 +1,4 @@
+-- [EN] Load the sampled CSV into the raw table (needs local_infile enabled on server and client).
 -- 导入抽样数据到原始表
 -- 需要先开启：SET GLOBAL local_infile = 1;  并且客户端连接时加 --local-infile=1
 USE taobao;
